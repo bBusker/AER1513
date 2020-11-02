@@ -4,7 +4,7 @@ import scipy.io
 from sympy import *
 init_printing()
 
-def get_jacobians(printing=True):
+def run(printing=True):
     x_k, y_k, theta_k = symbols("x_k y_k theta_k")
     x_kp, y_kp, theta_kp = symbols("x_{k-1} y_{k-1} \\theta_{k-1}")
     x_l, y_l = symbols("x_l y_l")
@@ -13,6 +13,7 @@ def get_jacobians(printing=True):
     d = symbols ("d")
     noise_v, noise_omega = symbols("noise_v, noise_omega")
     noise_r, noise_phi = symbols("noise_r, noise_phi")
+    noises = (noise_v, noise_omega, noise_r, noise_phi)
 
     X_k = Matrix([x_k, y_k, theta_k])
     X_kp = Matrix([x_kp, y_kp, theta_kp])
@@ -25,13 +26,13 @@ def get_jacobians(printing=True):
     g = Matrix([sqrt((x_l - x_k - d*cos(theta_k))**2 + (y_l - y_k - d*sin(theta_k))**2),
                 atan2(y_l - y_k - d*sin(theta_k), x_l - x_k - d*cos(theta_k)) - theta_k]) + N_k
 
-    F_kp = h.jacobian(X_kp)
-    Wp_k = h.jacobian(W_k)*W_k
+    F_kp = h.jacobian(X_kp).subs([(noise, 0) for noise in noises])
+    Wp_k = h.jacobian(W_k).subs([(noise, 0) for noise in noises])*W_k
     Qp_k = Wp_k * Wp_k.T
 
 
-    G_k = g.jacobian(X_k)
-    Np_k = g.jacobian(N_k)*N_k
+    G_k = g.jacobian(X_k).subs([(noise, 0) for noise in noises])
+    Np_k = g.jacobian(N_k).subs([(noise, 0) for noise in noises])*N_k
     Rp_k = Np_k * Np_k.T
 
     if printing:
@@ -48,9 +49,19 @@ def get_jacobians(printing=True):
         print("R'_k")
         print(latex(Rp_k))
 
-    return F_kp, Wp_k, G_k, Np_k
+    ############### EKF ###############
+    '''
+    F_kp: 3x3
+    P_prior: 3x3
+    Q'_k: 3x3
+    P_post: 3x3
+    x: 3x1
+    G: (2*n)x3
+    R: 2x2
+    K: 3x(2*n)
+    y: 2x1
+    '''
 
-def EKF(F_kp, Wp_k, G_k, Np_k):
     dataset = scipy.io.loadmat("dataset2.mat")
     t = dataset['t']
     x_true = dataset["x_true"]
@@ -66,17 +77,27 @@ def EKF(F_kp, Wp_k, G_k, Np_k):
     v_var = dataset["v_var"]
     omega = dataset["om"]
     omega_var = dataset["om_var"]
-    d = dataset["d"]
+    d_ = dataset["d"]
 
     P_prior = np.diag((1, 1, 0.1))
     X_prior = np.array([[x_true[0], y_true[0], theta_true[0]]]).T
+    Xs = []
 
-
-
-    print("temp")
+    for i in range(x_true.shape[0]):
+        P_post = F_kp * P_prior * F_kp.T + Qp_k
+        X_post = h.subs([(x_kp, X_prior[0][0]), (y_kp, X_prior[0][1]), (theta_kp, X_prior[0][2]), (v_k, v[i]), (omega_k, omega[i]), (noise_v, 0), (noise_omega, 0)])
+        KG = Matrix([[0,0,0],[0,0,0],[0,0,0]])
+        X_prior = X_post
+        for j in range(17):
+            if r[i][j] == 0: continue
+            G = G_k.subs([(d, d_)])
+            K = P_post * G.T * (G * P_post * G.T + Rp_k).inv()
+            KG += K*G
+            X_prior += K * (Matrix([r[i][j], b[i][j]]) - g.subs([(x_k, X_post[0][0]), (y_k, X_post[0][1]), (theta_k, X_post[0][2]), (x_l, landmarks[j][0]), (y_l, landmarks[j][1]), (noise_r, 0), (noise_phi, 0)]))
+        P_prior = (eye(3) - KG) * P_post
+        Xs.append(X_prior)
 
 
 if __name__ == "__main__":
-    F_kp, Wp_k, G_k, Np_k = get_jacobians(printing=True)
-    # EKF(F_kp, Wp_k, G_k, Np_k)
+    run()
 
