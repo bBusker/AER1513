@@ -96,41 +96,38 @@ def run(printing=True, EKF=True):
     X_prior = Matrix([x_true[0], y_true[0], theta_true[0]])
     Xs = []
 
-    F_kp_l = lambdify([v_k, theta_kp, T], F_kp)
-    Qp_k_l = lambdify([var_v, var_omega, theta_kp, T])
-    Rp_k_l = lambdify([var_r, var_phi])
-    h_l = lambdify([x_kp, y_kp, theta_kp, v_k, omega_k, noise_v, noise_omega, T], h)
-    G_k_l = lambdify([x_k, y_k, theta_k, x_l, y_l, d], G_k)
-    g_l = lambdify([x_k, y_k, theta_k, x_l, y_l, noise_r, noise_phi, d], g)
+    F_kp_l = lambdify([v_k, theta_kp, T], F_kp, 'numpy')
+    Qp_k_l = lambdify([var_v, var_omega, theta_kp, T], Qp_k, 'numpy')
+    Rp_k_l = lambdify([var_r, var_phi], Rp_k, 'numpy')
+    h_l = lambdify([x_kp, y_kp, theta_kp, v_k, omega_k, noise_v, noise_omega, T], h, 'numpy')
+    G_k_l = lambdify([x_k, y_k, theta_k, x_l, y_l, d], G_k, 'numpy')
+    g_l = lambdify([x_k, y_k, theta_k, x_l, y_l, noise_r, noise_phi, d], g, 'numpy')
 
 
     print("Starting EKF...")
     for i in range(x_true.shape[0]):
-        print(f"Finished {i}/{x_true.shape[0]}")
-        F_kp_ = F_kp.subs([(v_k, v[i][0]), (theta_kp, X_prior[2]), (T, 0.1)])
-        Qp_k_ = Qp_k.subs([(var_v, v_var.item()), (var_omega, omega_var.item()), (theta_kp, X_prior[2]), (T, 0.1)])
-        Rp_k_ = Rp_k.subs([(var_r, r_var.item()), (var_phi, b_var.item())])
+        print(f"\rFinished {i}/{x_true.shape[0]}", end="")
+        F_kp_ = F_kp_l(v[i][0], float(X_prior[2]), 0.1)
+        Qp_k_ = Qp_k_l(v_var.item(), omega_var.item(), float(X_prior[2]), 0.1)
+        Rp_k_ = Rp_k_l(r_var.item(), b_var.item())
 
         P_post = F_kp_ * P_prior * F_kp_.T + Qp_k_
-        X_post = h.subs([(x_kp, X_prior[0]), (y_kp, X_prior[1]), (theta_kp, X_prior[2]),
-                         (v_k, v[i][0]), (omega_k, omega[i][0]), (noise_v, 0), (noise_omega, 0), (T, 0.1)])
+        X_post = h_l(float(X_prior[0]), float(X_prior[1]), float(X_prior[2]), v[i][0], omega[i][0], 0, 0, 0.1)
 
         KG = Matrix([[0,0,0],[0,0,0],[0,0,0]])
         X_prior = X_post
         for j in range(r.shape[1]):
             if r[i][j] == 0: continue
-            G = G_k.subs([(x_k, X_post[0]), (y_k, X_post[0]), (theta_k, X_post[2]),
-                          (x_l, landmarks[j][0]), (y_l, landmarks[j][1]), (d, d_.item())])
+            G = G_k_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], d_.item())
             K = P_post * G.T * (G * P_post * G.T + Rp_k_).inv()
 
             KG += K*G
-            g_ = g.subs([(x_k, X_post[0]), (y_k, X_post[1]), (theta_k, X_post[2]),
-                                      (x_l, landmarks[j][0]), (y_l, landmarks[j][1]), (noise_r, 0),
-                                      (noise_phi, 0), (d, d_.item())])
+            g_ = g_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], 0, 0, d_.item())
             g_[1] = wraptopi(g_[1])
             X_prior += K * (Matrix([r[i][j], b[i][j]]) - g_)
             # print(X_prior.evalf())
         P_prior = (eye(3) - KG) * P_post
+        print(X_prior)
         Xs.append(X_prior)
 
     Xs = np.array([Xs]).T
