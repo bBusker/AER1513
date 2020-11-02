@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy import linalg
 import scipy.io
 from sympy import Matrix, symbols, init_printing, cos, sin, sqrt, atan2, latex, diag, eye
 from sympy.utilities.lambdify import lambdify
@@ -94,7 +95,8 @@ def run(printing=True, EKF=True):
 
     P_prior = diag(1, 1, 0.1)
     X_prior = Matrix([x_true[0], y_true[0], theta_true[0]])
-    Xs = []
+    Xs = [np.array(X_prior).astype(np.float64)]
+    Ps = [np.array(P_prior).astype(np.float64)]
 
     F_kp_l = lambdify([v_k, theta_kp, T], F_kp, 'numpy')
     Qp_k_l = lambdify([var_v, var_omega, theta_kp, T], Qp_k, 'numpy')
@@ -106,31 +108,63 @@ def run(printing=True, EKF=True):
 
     print("Starting EKF...")
     for i in range(x_true.shape[0]):
-        print(f"\rFinished {i}/{x_true.shape[0]}", end="")
         F_kp_ = F_kp_l(v[i][0], float(X_prior[2]), 0.1)
         Qp_k_ = Qp_k_l(v_var.item(), omega_var.item(), float(X_prior[2]), 0.1)
-        Rp_k_ = Rp_k_l(r_var.item(), b_var.item())
+        # Rp_k_ = Rp_k_l(r_var.item(), b_var.item())
 
         P_post = F_kp_ * P_prior * F_kp_.T + Qp_k_
         X_post = h_l(float(X_prior[0]), float(X_prior[1]), float(X_prior[2]), v[i][0], omega[i][0], 0, 0, 0.1)
 
-        KG = Matrix([[0,0,0],[0,0,0],[0,0,0]])
-        X_prior = X_post
+        # KG = Matrix([[0,0,0],[0,0,0],[0,0,0]])
+        # X_prior = X_post
+        Gs = []
+        gs = []
+        ys = []
+        valid_landmarks = 0
         for j in range(r.shape[1]):
             if r[i][j] == 0: continue
+            valid_landmarks += 1
             G = G_k_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], d_.item())
-            K = P_post * G.T * (G * P_post * G.T + Rp_k_).inv()
+            # K = P_post * G.T * (G * P_post * G.T + Rp_k_).inv()
 
-            KG += K*G
             g_ = g_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], 0, 0, d_.item())
             g_[1] = wraptopi(g_[1])
-            X_prior += K * (Matrix([r[i][j], b[i][j]]) - g_)
+
+            Gs.append(G)
+            # Ks.append(K)
+            gs.append(g_)
+            ys.append(np.array([[r[i][j], b[i][j]]]).T)
+
+            # KG += K*G
+            # X_prior += K * (Matrix([r[i][j], b[i][j]]) - g_)
             # print(X_prior.evalf())
-        P_prior = (eye(3) - KG) * P_post
-        print(X_prior)
-        Xs.append(X_prior)
+        # P_prior = (eye(3) - KG) * P_post
+
+        if valid_landmarks != 0:
+            G_ = np.vstack(Gs)
+            # K_ = np.hstack(Ks)
+            g_ = np.vstack(gs)
+            y_ = np.vstack(ys)
+            R_ = np.diag([r_var.item(), b_var.item()]*valid_landmarks)
+
+            K = P_post * G_.T * (G_ * P_post * G_.T + R_).inv()
+
+            P_prior = (np.eye(3) - K * G_) * P_post
+            X_prior = X_post + K * (y_ - g_)
+        else:
+            P_prior = P_post
+            X_prior = X_post
+
+        state = np.array([x_true[i], y_true[i], theta_true[i]])
+        state_err = X_prior - state
+        print(f"\rFinished {i}/{x_true.shape[0]} err: {(abs(state_err[0]) + abs(state_err[1]))/2}")
+        Xs.append(np.array(X_prior).astype(np.float64))
+        Ps.append(np.array(P_prior).astype(np.float64))
 
     Xs = np.array([Xs]).T
+    Ps = np.array(Ps)
+    np.save("Xs", Xs)
+    np.save("Ps", Ps)
     err = np.abs(x_true - Xs)
     print(np.avg(err))
 
