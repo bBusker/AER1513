@@ -11,24 +11,25 @@ def wraptopi(x):
     return (x + np.pi) % (2 * np.pi) - np.pi
 
 def run(printing=True, EKF=True):
+    A, B = symbols("A B")
     x_k, y_k, theta_k = symbols("x_k y_k theta_k")
     x_kp, y_kp, theta_kp = symbols("x_{k-1} y_{k-1} \\theta_{k-1}")
     x_l, y_l = symbols("x_l y_l")
     v_k, omega_k = symbols("v_k omega_k")
     T = symbols("T")
     d = symbols ("d")
-    noise_v, noise_omega = symbols("noise_v, noise_omega")
-    var_v, var_omega = symbols("sigma_v, sigma_omega")
-    noise_r, noise_phi = symbols("noise_r, noise_phi")
-    var_r, var_phi = symbols("sigma_r, sigma_phi")
+    noise_v, noise_omega = symbols("n_v, n_omega")
+    var_v, var_omega = symbols("sigma_v^2, sigma_omega^2")
+    noise_r, noise_phi = symbols("n_r, n_phi")
+    var_r, var_phi = symbols("sigma_r^2, sigma_phi^2")
     noises = (noise_v, noise_omega, noise_r, noise_phi)
 
     X_k = Matrix([x_k, y_k, theta_k])
     X_kp = Matrix([x_kp, y_kp, theta_kp])
-    A = Matrix([[cos(theta_kp), 0], [sin(theta_kp), 0], [0, 1]])
+    AA = Matrix([[cos(theta_kp), 0], [sin(theta_kp), 0], [0, 1]])
     U_k = Matrix([v_k, omega_k])
     W_k = Matrix([noise_v, noise_omega])
-    h = X_kp + T*A*(U_k + W_k)
+    h = X_kp + T*AA*(U_k + W_k)
 
     N_k = Matrix([noise_r, noise_phi])
     g = Matrix([sqrt((x_l - x_k - d*cos(theta_k))**2 + (y_l - y_k - d*sin(theta_k))**2),
@@ -42,6 +43,7 @@ def run(printing=True, EKF=True):
 
 
     G_k = g.jacobian(X_k).subs([(noise, 0) for noise in noises])
+    G_k_print = G_k.subs([(d*cos(theta_k)+x_k-x_l, A), (d*sin(theta_k)+y_k-y_l, B)])
     Np_k = g.jacobian(N_k).subs([(noise, 0) for noise in noises])*N_k
     Rp_k = Np_k * Np_k.T
     # Manually do expectation
@@ -53,7 +55,7 @@ def run(printing=True, EKF=True):
         print("W'_k")
         print(latex(Wp_k))
         print("G_k")
-        print(latex(G_k))
+        print(latex(G_k_print))
         print("N'_k")
         print(latex(Np_k))
         print("Q'_k")
@@ -92,7 +94,7 @@ def run(printing=True, EKF=True):
     omega = dataset["om"]
     omega_var = dataset["om_var"]
     d_ = dataset["d"]
-    r_max = 5
+    r_max = 1
 
     P_prior = diag(1, 1, 0.1)
     X_prior = Matrix([x_true[0], y_true[0], theta_true[0]])
@@ -144,15 +146,15 @@ def run(printing=True, EKF=True):
 
         state = np.array([x_true[i], y_true[i], theta_true[i]])
         state_err = X_prior - state
-        print(f"\rFinished {i}/{x_true.shape[0]} err: {(abs(state_err[0]) + abs(state_err[1]))/2}")
+        print(f"\rFinished {i}/{x_true.shape[0]} xy err: {(abs(state_err[0]) + abs(state_err[1]))/2}")
         Xs.append(np.array(X_prior).astype(np.float64))
         Ps.append(np.array(P_prior).astype(np.float64))
 
     Xs = np.array([Xs]).T
     Ps = np.array(Ps)
-    np.save("Xs", Xs)
-    np.save("Ps", Ps)
-    err = np.abs(x_true - Xs)
+    np.save("Xs_r1", Xs)
+    np.save("Ps_r1", Ps)
+    err = np.abs(x_true - Xs.squeeze()[:, 1:].T)
     print(np.avg(err))
 
 
@@ -173,37 +175,39 @@ def plotting():
     omega = dataset["om"]
     omega_var = dataset["om_var"]
     d_ = dataset["d"]
-    res = np.load('Xs.npy').squeeze()
-    uncert = np.load('Ps.npy').squeeze()
 
-    print(np.max(theta_true))
+    for r_max in [1, 3, 5]:
+        res = np.load(f'Xs_r{r_max}.npy').squeeze()
+        uncert = np.load(f'Ps_r{r_max}.npy').squeeze()
 
-    fig, ax = plt.subplots(3, 1, figsize=(5, 10))
-    err_x = np.abs(res[0, 1:] - x_true.squeeze())
-    ax[0].plot(t.squeeze(), err_x, linewidth=0.3, label="Error in x")
-    ax[0].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 0, 0]), +3*np.sqrt(uncert[1:, 0, 0]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
-    err_y = np.abs(res[1, 1:] - y_true.squeeze())
-    ax[1].plot(t.squeeze(), err_y, linewidth=0.3, label="Error in y")
-    ax[1].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 1, 1]), +3*np.sqrt(uncert[1:, 1, 1]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
-    err_theta = np.abs(res[2, 1:] - theta_true.squeeze())
-    ax[2].plot(t.squeeze(), err_theta, linewidth=0.3, label="Error in theta")
-    ax[2].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 2, 2]), +3*np.sqrt(uncert[1:, 2, 2]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
-    fig.suptitle("Errors for R=5")
-    ax[0].set_title("Errors for x")
-    ax[0].set_xlabel("Time (s)")
-    ax[0].set_ylabel("Error (m)")
-    ax[0].legend()
-    ax[1].set_title("Errors for y")
-    ax[1].set_xlabel("Time (s)")
-    ax[1].set_ylabel("Error (m)")
-    ax[1].legend()
-    ax[2].set_title("Errors for theta")
-    ax[2].set_xlabel("Time (s)")
-    ax[2].set_ylabel("Error (m)")
-    ax[2].legend()
-    fig.show()
+        fig, ax = plt.subplots(3, 1, figsize=(5, 10))
+        err_x = res[0, 1:] - x_true.squeeze()
+        ax[0].plot(t.squeeze(), err_x, linewidth=0.3, label="Error in x")
+        ax[0].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 0, 0]), +3*np.sqrt(uncert[1:, 0, 0]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        err_y = res[1, 1:] - y_true.squeeze()
+        ax[1].plot(t.squeeze(), err_y, linewidth=0.3, label="Error in y")
+        ax[1].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 1, 1]), +3*np.sqrt(uncert[1:, 1, 1]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        # err_theta = np.abs(res[2, 1:] - theta_true.squeeze())
+        theta_diff = res[2, 1:] - theta_true.squeeze()
+        err_theta = np.arctan2(np.sin(theta_diff), np.cos(theta_diff))
+        ax[2].plot(t.squeeze(), err_theta, linewidth=0.3, label="Error in theta")
+        ax[2].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 2, 2]), +3*np.sqrt(uncert[1:, 2, 2]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        fig.suptitle(f"Errors for R={r_max}")
+        ax[0].set_title("Errors for x")
+        ax[0].set_xlabel("Time (s)")
+        ax[0].set_ylabel("Error (m)")
+        ax[0].legend()
+        ax[1].set_title("Errors for y")
+        ax[1].set_xlabel("Time (s)")
+        ax[1].set_ylabel("Error (m)")
+        ax[1].legend()
+        ax[2].set_title("Errors for theta")
+        ax[2].set_xlabel("Time (s)")
+        ax[2].set_ylabel("Error (rad)")
+        ax[2].legend()
+        fig.show()
 
 
 if __name__ == "__main__":
-    # run(printing=True, EKF=True)
+    # run(printing=True, EKF=False)
     plotting()
