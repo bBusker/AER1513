@@ -92,6 +92,7 @@ def run(printing=True, EKF=True):
     omega = dataset["om"]
     omega_var = dataset["om_var"]
     d_ = dataset["d"]
+    r_max = 5
 
     P_prior = diag(1, 1, 0.1)
     X_prior = Matrix([x_true[0], y_true[0], theta_true[0]])
@@ -122,7 +123,7 @@ def run(printing=True, EKF=True):
         ys = []
         valid_landmarks = 0
         for j in range(r.shape[1]):
-            if r[i][j] == 0: continue
+            if r[i][j] == 0 or r[i][j] > r_max: continue
             valid_landmarks += 1
             G = G_k_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], d_.item())
             # K = P_post * G.T * (G * P_post * G.T + Rp_k_).inv()
@@ -168,6 +169,55 @@ def run(printing=True, EKF=True):
     err = np.abs(x_true - Xs)
     print(np.avg(err))
 
-if __name__ == "__main__":
-    run(printing=True, EKF=True)
 
+def plotting():
+    dataset = scipy.io.loadmat("dataset2.mat")
+    t = dataset['t']
+    x_true = dataset["x_true"]
+    y_true = dataset["y_true"]
+    theta_true = dataset["th_true"]
+    true_valid = dataset["true_valid"]
+    landmarks = dataset["l"]
+    r = dataset["r"]
+    r_var = dataset["r_var"]
+    b = dataset["b"]
+    b_var = dataset["b_var"]
+    v = dataset["v"]
+    v_var = dataset["v_var"]
+    omega = dataset["om"]
+    omega_var = dataset["om_var"]
+    d_ = dataset["d"]
+    res = np.load('Xs.npy').squeeze()
+    uncert = np.load('Ps.npy').squeeze()
+
+    print(np.max(theta_true))
+
+    fig, ax = plt.subplots(3, 1, figsize=(5, 10))
+    err_x = np.abs(res[0, 1:] - x_true.squeeze())
+    ax[0].plot(t.squeeze(), err_x, linewidth=0.3, label="Error in x")
+    ax[0].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 0, 0]), +3*np.sqrt(uncert[1:, 0, 0]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+    err_y = np.abs(res[1, 1:] - y_true.squeeze())
+    ax[1].plot(t.squeeze(), err_y, linewidth=0.3, label="Error in y")
+    ax[1].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 1, 1]), +3*np.sqrt(uncert[1:, 1, 1]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+    err_theta = np.abs(res[2, 1:] - theta_true.squeeze())
+    ax[2].plot(t.squeeze(), err_theta, linewidth=0.3, label="Error in theta")
+    ax[2].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 2, 2]), +3*np.sqrt(uncert[1:, 2, 2]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+    fig.suptitle("Errors for R=5")
+    ax[0].set_title("Errors for x")
+    ax[0].set_xlabel("Time (s)")
+    ax[0].set_ylabel("Error (m)")
+    ax[0].legend()
+    ax[1].set_title("Errors for y")
+    ax[1].set_xlabel("Time (s)")
+    ax[1].set_ylabel("Error (m)")
+    ax[1].legend()
+    ax[2].set_title("Errors for theta")
+    ax[2].set_xlabel("Time (s)")
+    ax[2].set_ylabel("Error (m)")
+    ax[2].legend()
+    fig.show()
+
+
+if __name__ == "__main__":
+    # run(printing=True, EKF=True)
+    plotting()
