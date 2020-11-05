@@ -94,10 +94,12 @@ def run(printing=True, EKF=True):
     omega = dataset["om"]
     omega_var = dataset["om_var"]
     d_ = dataset["d"]
-    r_max = 1
+    r_max = 5
+    save_name_suffix = "_badinit_r5"
 
     P_prior = diag(1, 1, 0.1)
-    X_prior = Matrix([x_true[0], y_true[0], theta_true[0]])
+    # X_prior = Matrix([x_true[0], y_true[0], theta_true[0]])  # Good init
+    X_prior = Matrix([1, 1, 0.1])  # Bad init
     Xs = [np.array(X_prior).astype(np.float64)]
     Ps = [np.array(P_prior).astype(np.float64)]
 
@@ -152,10 +154,10 @@ def run(printing=True, EKF=True):
 
     Xs = np.array([Xs]).T
     Ps = np.array(Ps)
-    np.save("Xs_r1", Xs)
-    np.save("Ps_r1", Ps)
+    np.save(f"Xs{save_name_suffix}", Xs)
+    np.save(f"Ps{save_name_suffix}", Ps)
     err = np.abs(x_true - Xs.squeeze()[:, 1:].T)
-    print(np.avg(err))
+    print(f"Avg error: {np.average(err)}")
 
 
 def plotting():
@@ -177,21 +179,23 @@ def plotting():
     d_ = dataset["d"]
 
     for r_max in [1, 3, 5]:
-        res = np.load(f'Xs_r{r_max}.npy').squeeze()
-        uncert = np.load(f'Ps_r{r_max}.npy').squeeze()
+        filename = f'r{r_max}'
+        res = np.load(f'Xs_{filename}.npy').squeeze()
+        var = np.load(f'Ps_{filename}.npy').squeeze()
+        stddv = np.sqrt(var)
 
         fig, ax = plt.subplots(3, 1, figsize=(5, 10))
         err_x = res[0, 1:] - x_true.squeeze()
         ax[0].plot(t.squeeze(), err_x, linewidth=0.3, label="Error in x")
-        ax[0].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 0, 0]), +3*np.sqrt(uncert[1:, 0, 0]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        ax[0].fill_between(t.squeeze(), -3*stddv[1:, 0, 0], +3*stddv[1:, 0, 0], edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
         err_y = res[1, 1:] - y_true.squeeze()
         ax[1].plot(t.squeeze(), err_y, linewidth=0.3, label="Error in y")
-        ax[1].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 1, 1]), +3*np.sqrt(uncert[1:, 1, 1]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        ax[1].fill_between(t.squeeze(), -3*stddv[1:, 1, 1], +3*stddv[1:, 1, 1], edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
         # err_theta = np.abs(res[2, 1:] - theta_true.squeeze())
         theta_diff = res[2, 1:] - theta_true.squeeze()
         err_theta = np.arctan2(np.sin(theta_diff), np.cos(theta_diff))
         ax[2].plot(t.squeeze(), err_theta, linewidth=0.3, label="Error in theta")
-        ax[2].fill_between(t.squeeze(), -3*np.sqrt(uncert[1:, 2, 2]), +3*np.sqrt(uncert[1:, 2, 2]), edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        ax[2].fill_between(t.squeeze(), -3*stddv[1:, 2, 2], +3*stddv[1:, 2, 2], edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
         fig.suptitle(f"Errors for R={r_max}")
         ax[0].set_title("Errors for x")
         ax[0].set_xlabel("Time (s)")
@@ -206,8 +210,9 @@ def plotting():
         ax[2].set_ylabel("Error (rad)")
         ax[2].legend()
         fig.show()
+        fig.savefig(f"{filename}.png")
 
 
 if __name__ == "__main__":
-    # run(printing=True, EKF=False)
-    plotting()
+    run(printing=True, EKF=True)
+    # plotting()
