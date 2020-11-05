@@ -101,7 +101,6 @@ def run(printing=True, EKF=True):
 
     F_kp_l = lambdify([v_k, theta_kp, T], F_kp, 'numpy')
     Qp_k_l = lambdify([var_v, var_omega, theta_kp, T], Qp_k, 'numpy')
-    Rp_k_l = lambdify([var_r, var_phi], Rp_k, 'numpy')
     h_l = lambdify([x_kp, y_kp, theta_kp, v_k, omega_k, noise_v, noise_omega, T], h, 'numpy')
     G_k_l = lambdify([x_k, y_k, theta_k, x_l, y_l, d], G_k, 'numpy')
     g_l = lambdify([x_k, y_k, theta_k, x_l, y_l, noise_r, noise_phi, d], g, 'numpy')
@@ -111,13 +110,10 @@ def run(printing=True, EKF=True):
     for i in range(x_true.shape[0]):
         F_kp_ = F_kp_l(v[i][0], float(X_prior[2]), 0.1)
         Qp_k_ = Qp_k_l(v_var.item(), omega_var.item(), float(X_prior[2]), 0.1)
-        # Rp_k_ = Rp_k_l(r_var.item(), b_var.item())
 
         P_post = F_kp_ * P_prior * F_kp_.T + Qp_k_
         X_post = h_l(float(X_prior[0]), float(X_prior[1]), float(X_prior[2]), v[i][0], omega[i][0], 0, 0, 0.1)
 
-        # KG = Matrix([[0,0,0],[0,0,0],[0,0,0]])
-        # X_prior = X_post
         Gs = []
         gs = []
         ys = []
@@ -126,30 +122,20 @@ def run(printing=True, EKF=True):
             if r[i][j] == 0 or r[i][j] > r_max: continue
             valid_landmarks += 1
             G = G_k_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], d_.item())
-            # K = P_post * G.T * (G * P_post * G.T + Rp_k_).inv()
-
             g_ = g_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], 0, 0, d_.item())
             g_[1] = wraptopi(g_[1])
 
             Gs.append(G)
-            # Ks.append(K)
             gs.append(g_)
             ys.append(np.array([[r[i][j], b[i][j]]]).T)
 
-            # KG += K*G
-            # X_prior += K * (Matrix([r[i][j], b[i][j]]) - g_)
-            # print(X_prior.evalf())
-        # P_prior = (eye(3) - KG) * P_post
-
         if valid_landmarks != 0:
             G_ = np.vstack(Gs)
-            # K_ = np.hstack(Ks)
             g_ = np.vstack(gs)
             y_ = np.vstack(ys)
             R_ = np.diag([r_var.item(), b_var.item()]*valid_landmarks)
 
             K = P_post * G_.T * (G_ * P_post * G_.T + R_).inv()
-
             P_prior = (np.eye(3) - K * G_) * P_post
             X_prior = X_post + K * (y_ - g_)
         else:
