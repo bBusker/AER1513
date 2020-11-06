@@ -1,10 +1,23 @@
+import math
+
+import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from matplotlib.animation import writers
+from matplotlib.animation import FFMpegFileWriter
+from matplotlib.patches import Ellipse
 import numpy as np
 from numpy import linalg
 import scipy.io
+from scipy.stats import chi2
+
 from sympy import Matrix, symbols, init_printing, cos, sin, sqrt, atan2, latex, diag, eye
 from sympy.utilities.lambdify import lambdify
+
+matplotlib.use('TkAgg')
+# plt.rcParams['animation.ffmpeg_path']
 init_printing()
+
 
 
 def wraptopi(x):
@@ -182,7 +195,7 @@ def plotting():
         filename = f'r{r_max}'
         res = np.load(f'Xs_{filename}.npy').squeeze()
         var = np.load(f'Ps_{filename}.npy').squeeze()
-        stddv = np.sqrt(var)
+        stddv = np.sqrt(np.abs(var))
 
         fig, ax = plt.subplots(3, 1, figsize=(5, 10))
         err_x = res[0, 1:] - x_true.squeeze()
@@ -212,7 +225,78 @@ def plotting():
         fig.show()
         fig.savefig(f"{filename}.png")
 
+def animation():
+    dataset = scipy.io.loadmat("dataset2.mat")
+    t = dataset['t']
+    x_true = dataset["x_true"]
+    y_true = dataset["y_true"]
+    theta_true = dataset["th_true"]
+    true_valid = dataset["true_valid"]
+    landmarks = dataset["l"]
+    r = dataset["r"]
+    r_var = dataset["r_var"]
+    b = dataset["b"]
+    b_var = dataset["b_var"]
+    v = dataset["v"]
+    v_var = dataset["v_var"]
+    omega = dataset["om"]
+    omega_var = dataset["om_var"]
+    d_ = dataset["d"]
+
+    res = np.load('Xs_r1.npy').squeeze()
+    var = np.load('Ps_r1.npy').squeeze()
+    stddv = np.sqrt(np.abs(var))
+
+    fig, ax = plt.subplots()
+    ax.set_xlim(-2, 10)
+    ax.set_ylim(-6, 4)
+
+    est_pos, = ax.plot([], [], 'o', color='r', ms=6, label="Est. Position + Uncert.")
+    est_pos_hist, = ax.plot([], [], color='r', linewidth=0.2)
+    true_pos, = ax.plot([], [], 'o', color='b', ms=6, label="True Position")
+    true_pos_hist, = ax.plot([], [], color='b', linewidth=0.2)
+    ax.scatter(landmarks[:, 0], landmarks[:, 1], color='k')
+    ax.legend()
+    ax.set_ylabel("y [m]")
+    ax.set_xlabel("x [m]")
+    ax.set_title("Video of Ground Truth Position verses Estimated Position")
+
+    def uncert_ellipse(timestep):
+        cov = stddv[timestep, 0:2, 0:2]
+        centroid = (res[0, timestep], res[1, timestep])
+        c = chi2.isf(1 - 0.9972, 2)
+        U, s, _ = np.linalg.svd(cov)
+
+        width = 2.0 * math.sqrt(s[0] * c)
+        height = 2.0 * math.sqrt(s[1] * c)
+        orient = math.atan2(U[1][0], U[0][0]) * 180 / math.pi
+
+        return Ellipse(xy=centroid, width=width, height=height, angle=orient, alpha=0.6, color='r', zorder=-1)
+
+        # pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
+        # ell_radius_x = np.sqrt(1 + pearson)
+        # ell_radius_y = np.sqrt(1 - pearson)
+
+
+    def anim_frame(t_):
+        timestep = int(t_.item()*10)
+        est_pos.set_data(res[0, timestep], res[1, timestep])
+        true_pos.set_data(x_true[timestep], y_true[timestep])
+        est_pos_hist.set_data(res[0, :timestep], res[1, :timestep])
+        true_pos_hist.set_data(x_true[:timestep], y_true[:timestep])
+
+        del ax.patches[:]
+        ax.add_patch(uncert_ellipse(timestep))
+        # return est_pos, est_pos_hist, true_pos, true_pos_hist,
+
+    anim = FuncAnimation(fig, func=anim_frame, frames=t, interval=10)
+    ffmpeg = writers['ffmpeg']
+    ffmpeg_ = ffmpeg(fps=30, metadata=dict(artist="Shichen"), bitrate=2000)
+    anim.save("video.mp4", writer=ffmpeg_)
+    # plt.show(block=True)
+
 
 if __name__ == "__main__":
-    run(printing=True, EKF=True)
+    # run(printing=True, EKF=True)
     # plotting()
+    animation()
