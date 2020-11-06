@@ -107,12 +107,13 @@ def run(printing=True, EKF=True):
     omega = dataset["om"]
     omega_var = dataset["om_var"]
     d_ = dataset["d"]
-    r_max = 5
-    save_name_suffix = "_badinit_r5"
+    r_max = 3
+    save_name_suffix = "_testing_r3"
+    CRLB = False
 
     P_prior = diag(1, 1, 0.1)
     # X_prior = Matrix([x_true[0], y_true[0], theta_true[0]])  # Good init
-    X_prior = Matrix([1, 1, 0.1])  # Bad init
+    X_prior = Matrix([99999999, 9999999, 999999])  # Bad init
     Xs = [np.array(X_prior).astype(np.float64)]
     Ps = [np.array(P_prior).astype(np.float64)]
 
@@ -125,11 +126,20 @@ def run(printing=True, EKF=True):
 
     print("Starting EKF...")
     for i in range(x_true.shape[0]):
-        F_kp_ = F_kp_l(v[i][0], float(X_prior[2]), 0.1)
-        Qp_k_ = Qp_k_l(v_var.item(), omega_var.item(), float(X_prior[2]), 0.1)
+        if CRLB:
+            F_kp_ = F_kp_l(v[i][0], float(theta_true[i][0]), 0.1)
+            Qp_k_ = Qp_k_l(v_var.item(), omega_var.item(), float(theta_true[i][0]), 0.1)
 
-        P_post = F_kp_ * P_prior * F_kp_.T + Qp_k_
-        X_post = h_l(float(X_prior[0]), float(X_prior[1]), float(X_prior[2]), v[i][0], omega[i][0], 0, 0, 0.1)
+            P_post = F_kp_ * P_prior * F_kp_.T + Qp_k_
+            X_post = h_l(float(x_true[i][0]), float(y_true[i][0]), float(theta_true[i][0]), v[i][0],
+                         omega[i][0], 0, 0, 0.1)
+        else:
+            F_kp_ = F_kp_l(v[i][0], float(X_prior[2]), 0.1)
+            Qp_k_ = Qp_k_l(v_var.item(), omega_var.item(), float(X_prior[2]), 0.1)
+
+            P_post = F_kp_ * P_prior * F_kp_.T + Qp_k_
+            X_post = h_l(float(X_prior[0]), float(X_prior[1]), float(X_prior[2]), v[i][0],
+                         omega[i][0], 0, 0, 0.1)
 
         Gs = []
         gs = []
@@ -138,8 +148,16 @@ def run(printing=True, EKF=True):
         for j in range(r.shape[1]):
             if r[i][j] == 0 or r[i][j] > r_max: continue
             valid_landmarks += 1
-            G = G_k_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], d_.item())
-            g_ = g_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0], landmarks[j][1], 0, 0, d_.item())
+            if CRLB:
+                G = G_k_l(float(x_true[i][0]), float(y_true[i][0]), float(theta_true[i][0]),
+                          landmarks[j][0], landmarks[j][1], d_.item())
+                g_ = g_l(float(x_true[i][0]), float(y_true[i][0]), float(theta_true[i][0]),
+                         landmarks[j][0], landmarks[j][1], 0, 0, d_.item())
+            else:
+                G = G_k_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0],
+                          landmarks[j][1],d_.item())
+                g_ = g_l(float(X_post[0]), float(X_post[1]), float(X_post[2]), landmarks[j][0],
+                         landmarks[j][1], 0, 0, d_.item())
             g_[1] = wraptopi(g_[1])
 
             Gs.append(G)
@@ -159,8 +177,8 @@ def run(printing=True, EKF=True):
             P_prior = P_post
             X_prior = X_post
 
-        state = np.array([x_true[i], y_true[i], theta_true[i]])
-        state_err = X_prior - state
+        true_state = np.array([x_true[i], y_true[i], theta_true[i]])
+        state_err = X_prior - true_state
         print(f"\rFinished {i}/{x_true.shape[0]} xy err: {(abs(state_err[0]) + abs(state_err[1]))/2}")
         Xs.append(np.array(X_prior).astype(np.float64))
         Ps.append(np.array(P_prior).astype(np.float64))
@@ -192,23 +210,25 @@ def plotting():
     d_ = dataset["d"]
 
     for r_max in [1, 3, 5]:
-        filename = f'r{r_max}'
+        filename = f'CRLB_r{r_max}'
         res = np.load(f'Xs_{filename}.npy').squeeze()
         var = np.load(f'Ps_{filename}.npy').squeeze()
         stddv = np.sqrt(np.abs(var))
 
         fig, ax = plt.subplots(3, 1, figsize=(5, 10))
-        err_x = res[0, 1:] - x_true.squeeze()
+        err_x = res[0, :-1] - x_true.squeeze()
         ax[0].plot(t.squeeze(), err_x, linewidth=0.3, label="Error in x")
-        ax[0].fill_between(t.squeeze(), -3*stddv[1:, 0, 0], +3*stddv[1:, 0, 0], edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
-        err_y = res[1, 1:] - y_true.squeeze()
+        ax[0].fill_between(t.squeeze(), -3*stddv[:-1, 0, 0], +3*stddv[:-1, 0, 0], edgecolor='#CC4F1B',
+                           facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        err_y = res[1, :-1] - y_true.squeeze()
         ax[1].plot(t.squeeze(), err_y, linewidth=0.3, label="Error in y")
-        ax[1].fill_between(t.squeeze(), -3*stddv[1:, 1, 1], +3*stddv[1:, 1, 1], edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
-        # err_theta = np.abs(res[2, 1:] - theta_true.squeeze())
-        theta_diff = res[2, 1:] - theta_true.squeeze()
+        ax[1].fill_between(t.squeeze(), -3*stddv[:-1, 1, 1], +3*stddv[:-1, 1, 1], edgecolor='#CC4F1B',
+                           facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        theta_diff = res[2, :-1] - theta_true.squeeze()
         err_theta = np.arctan2(np.sin(theta_diff), np.cos(theta_diff))
         ax[2].plot(t.squeeze(), err_theta, linewidth=0.3, label="Error in theta")
-        ax[2].fill_between(t.squeeze(), -3*stddv[1:, 2, 2], +3*stddv[1:, 2, 2], edgecolor='#CC4F1B', facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        ax[2].fill_between(t.squeeze(), -3*stddv[:-1, 2, 2], +3*stddv[:-1, 2, 2], edgecolor='#CC4F1B',
+                           facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
         fig.suptitle(f"Errors for R={r_max}")
         ax[0].set_title("Errors for x")
         ax[0].set_xlabel("Time (s)")
@@ -264,19 +284,15 @@ def animation():
     def uncert_ellipse(timestep):
         cov = stddv[timestep, 0:2, 0:2]
         centroid = (res[0, timestep], res[1, timestep])
-        c = chi2.isf(1 - 0.9972, 2)
+        c = chi2.isf(1 - 0.997, 2)
         U, s, _ = np.linalg.svd(cov)
 
         width = 2.0 * math.sqrt(s[0] * c)
         height = 2.0 * math.sqrt(s[1] * c)
         orient = math.atan2(U[1][0], U[0][0]) * 180 / math.pi
 
-        return Ellipse(xy=centroid, width=width, height=height, angle=orient, alpha=0.6, color='r', zorder=-1)
-
-        # pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
-        # ell_radius_x = np.sqrt(1 + pearson)
-        # ell_radius_y = np.sqrt(1 - pearson)
-
+        return Ellipse(xy=centroid, width=width, height=height, angle=orient, alpha=0.6,
+                       color='r', zorder=-1)
 
     def anim_frame(t_):
         timestep = int(t_.item()*10)
@@ -287,13 +303,12 @@ def animation():
 
         del ax.patches[:]
         ax.add_patch(uncert_ellipse(timestep))
-        # return est_pos, est_pos_hist, true_pos, true_pos_hist,
 
     anim = FuncAnimation(fig, func=anim_frame, frames=t, interval=10)
     ffmpeg = writers['ffmpeg']
     ffmpeg_ = ffmpeg(fps=30, metadata=dict(artist="Shichen"), bitrate=2000)
-    anim.save("video.mp4", writer=ffmpeg_)
-    # plt.show(block=True)
+    # anim.save("video.mp4", writer=ffmpeg_)
+    plt.show(block=True)
 
 
 if __name__ == "__main__":
