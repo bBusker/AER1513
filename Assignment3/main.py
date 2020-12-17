@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.io
+from sympy import Matrix, symbols, init_printing, cos, sin, sqrt, atan2, latex, diag, eye
+from sympy.utilities.lambdify import lambdify
 
 # Load dataset data into variables
 dataset = scipy.io.loadmat("dataset3.mat")
