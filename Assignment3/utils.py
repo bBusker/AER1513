@@ -2,11 +2,15 @@ import numpy as np
 import math
 
 def skewsym(v):
-    return np.array([[0, -v[2], v[1]],
-                     [v[2], 0, -v[0]],
-                     [-v[1], v[0], 0]])
+    if v.shape == (3,): v = v.reshape(3,1)
+    if v.shape != (3,1): raise ValueError(f"Incorrect shape of phi: {v.shape}")
+    return np.array([[0, -v[2][0], v[1][0]],
+                     [v[2][0], 0, -v[0][0]],
+                     [-v[1][0], v[0][0], 0]])
 
 def aa_to_C(phi):
+    if phi.shape == (3,): phi = phi.reshape(3,1)
+    if phi.shape != (3,1): raise ValueError(f"Incorrect shape of phi: {phi.shape}")
     mag = np.linalg.norm(phi)
     unit = phi/mag
     return (math.cos(mag) * np.eye(3)) + ((1 - math.cos(mag)) * unit @ unit.T) - (math.sin(mag) * skewsym(unit))

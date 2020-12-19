@@ -89,4 +89,4 @@ def gn_batch_estimate(k1=1215, k2=1714):
 
 if __name__ == "__main__":
     # q4()
-    gn_batch_estimate()
+    gn_batch_estimate(0, 1899)
