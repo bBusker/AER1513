@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 matplotlib.use('TkAgg')
 import scipy.io
 from scipy.linalg import expm, logm, block_diag
@@ -81,14 +82,15 @@ def get_initial_guess(k1=1215, k2=1714):
         Tk = t[0][k] - t[0][k-1]
         # Rotation
         C_kp = getC(Ts[k-1])
-        phi = w_vk_vk_i[:, k-1] * Tk
+        phi = wrap_to_pi(w_vk_vk_i[:, k-1] * Tk)
         dC = aa_to_C(phi)
         C_k = dC @ C_kp
         # Translation
-        r_kp = getR(Ts[k-1])
+        r_kp = -C_kp.T @ getR(Ts[k-1])
         d = v_vk_vk_i[:, k-1] * Tk
         dr = C_kp.T @ d
         r_k = r_kp + dr
+        r_k = -C_k @ r_k
         # Transformation
         Ts[k] = Tmat(C_k, r_k)
 
@@ -109,7 +111,7 @@ def gn_batch_estimate(k1=1215, k2=1714):
     # T_op = get_ground_truth(k1, k2)
 
 
-    for _ in range(50):
+    for _ in range(7):
         Fs = []
         Gs = []
         e_v_ks = []
@@ -194,6 +196,7 @@ def gn_batch_estimate(k1=1215, k2=1714):
         print(f"dx_opt: {np.average(np.abs(dx_opt))}")
         print("----------------------------------------")
 
+    return T_op
 
 def plot_figure(T_op):
     rs = []
@@ -211,8 +214,35 @@ def plot_figure(T_op):
     print("done")
 
 
+def calculate_err(T_op, k1, k2):
+    T_gt = get_ground_truth(k1, k2)
+
+    rot_err = []
+    trans_err = []
+    for k in range(k1, k2+1):
+        C_gt = getC(T_gt[k])
+        C_op = getC(T_op[k])
+
+        r_gt = getR(T_gt[k])
+        r_op = getR(T_op[k])
+
+        rot_err.append(get_inv_cross_op(np.eye(3) - C_op @ C_gt.T))
+        trans_err.append(r_op - r_gt)
+    rot_err = np.array(rot_err)
+    trans_err = np.array(trans_err)
+
+    t = np.arange(k1, k2+1)
+
+    fig, ax = plt.subplots(3, 1)
+    ax[0].plot(t, trans_err[:, 0])
+    ax[1].plot(t, trans_err[:, 1])
+    ax[2].plot(t, trans_err[:, 2])
+    plt.show()
 
 if __name__ == "__main__":
-    q4()
-    gn_batch_estimate(1215, 1714)
+    # q4()
+    T_op = gn_batch_estimate(1215, 1714)
+    # T_op = get_initial_guess(1215, 1714)
+    calculate_err(T_op, 1215, 1714)
+    # plot_figure(T_op)
     # gn_batch_estimate(1215, 1400)
