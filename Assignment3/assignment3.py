@@ -55,26 +55,11 @@ def dfdp(p):
     ])
     return M @ ((1/p[2].item())*df)
 
-
-def q4():
-    valids = np.where(y_k_j == -1, 0, 1)
-    num_valids = valids[0, :, :].sum(-1)
-    colors = np.array(['g' if num>=3 else 'r' for num in num_valids])
-    t_sq = t.squeeze()
-
-    fig, ax = plt.subplots(figsize=(15,4))
-    fig.suptitle('Visible Landmarks at Each Timestep')
-    ax.scatter(np.arange(0, t_sq.shape[0]), num_valids, s=0.5, c=colors)
-    ax.plot(np.arange(0, t_sq.shape[0]), num_valids, linewidth=0.1, c='k')
-    ax.yaxis.get_major_locator().set_params(integer=True)
-    ax.set_ylabel("Number of Visible Landmarks")
-    ax.set_xlabel("Timestep Number")
-    plt.savefig("q4.png", bbox_inches='tight')
-
-def get_initial_guess(k1=1215, k2=1714):
-    C_gt = aa_to_C(theta_vk_i[:, k1])
-    r_gt = - C_gt @ r_i_vk_i[:, k1]
-    T_gt = Tmat(C_gt, r_gt)
+def get_initial_guess(k1=1215, k2=1714, T_gt=None):
+    if T_gt is None:
+        C_gt = aa_to_C(theta_vk_i[:, k1])
+        r_gt = - C_gt @ r_i_vk_i[:, k1]
+        T_gt = Tmat(C_gt, r_gt)
 
     Ts = np.zeros((t.shape[1], 4, 4))
     Ts[k1] = T_gt
@@ -105,13 +90,13 @@ def get_ground_truth(k1=1215, k2=1714):
         Ts[k] = T_gt
     return Ts
 
-def gn_batch_estimate(k1=1215, k2=1714):
+def gn_batch_estimate(T_op, k1=1215, k2=1714, iters=7):
     K = k2 - k1
-    T_op = get_initial_guess(k1, k2)
+    # T_op = get_initial_guess(k1, k2)
     # T_op = get_ground_truth(k1, k2)
 
 
-    for _ in range(7):
+    for _ in range(iters):
         Fs = []
         Gs = []
         e_v_ks = []
@@ -173,12 +158,15 @@ def gn_batch_estimate(k1=1215, k2=1714):
         H = np.vstack((H_top, H_bot))
 
         e_top = np.vstack(e_v_ks)
-        e_bot = np.vstack(e_y_ks)
-        print(f"e_top: {np.average(np.abs(e_top))}")
-        print(f"e_bot: {np.average(np.abs(e_bot))}")
-        print(f"e_bot_max: {np.max(np.abs(e_bot))}")
-        print(f"e_bot_argmax: {np.argmax(np.abs(e_bot))}")
-        e = np.vstack((e_top, e_bot))
+        if len(e_y_ks) == 0:
+            e = e_top
+        else:
+            e_bot = np.vstack(e_y_ks)
+            e = np.vstack((e_top, e_bot))
+        # print(f"e_top: {np.average(np.abs(e_top))}")
+        # print(f"e_bot: {np.average(np.abs(e_bot))}")
+        # print(f"e_bot_max: {np.max(np.abs(e_bot))}")
+        # print(f"e_bot_argmax: {np.argmax(np.abs(e_bot))}")
 
         W = block_diag(*(Qs + Rs))
         Winv = W.copy()
@@ -191,12 +179,14 @@ def gn_batch_estimate(k1=1215, k2=1714):
         dx_opt = np.linalg.inv(A) @ b
 
         for k in range(K+1):
-            T_op[k + k1] = expm(get_cross_op(dx_opt[6*k:6*k+6])) @ T_op[k + k1]
+            T_op[k + k1] = expm(get_cross_op((iters-_)/iters * dx_opt[6*k:6*k+6])) @ T_op[k + k1]
 
-        print(f"dx_opt: {np.average(np.abs(dx_opt))}")
-        print("----------------------------------------")
+        # plot_errs(T_op, A, k1, k2)
 
-    return T_op
+        # print(f"dx_opt: {np.average(np.abs(dx_opt))}")
+        # print("----------------------------------------")
+
+    return T_op, A
 
 def plot_figure(T_op):
     rs = []
@@ -214,7 +204,7 @@ def plot_figure(T_op):
     print("done")
 
 
-def calculate_err(T_op, k1, k2):
+def plot_errs(T_op, A, k1, k2):
     T_gt = get_ground_truth(k1, k2)
 
     rot_err = []
@@ -231,18 +221,123 @@ def calculate_err(T_op, k1, k2):
     rot_err = np.array(rot_err)
     trans_err = np.array(trans_err)
 
+    print(f"Avg Rot Err: {np.average(np.abs(rot_err))}")
+    print(f"Avg Trans Err: {np.average(np.abs(trans_err))}")
+
+    var = np.linalg.inv(A).diagonal()
+    var_tx = var[0::6]
+    var_ty = var[1::6]
+    var_tz = var[2::6]
+    var_rx = var[3::6]
+    var_ry = var[4::6]
+    var_rz = var[5::6]
+
+    var_ts = [var_tx, var_ty, var_tz]
+    var_rs = [var_rx, var_ry, var_rz]
+
+
     t = np.arange(k1, k2+1)
 
-    fig, ax = plt.subplots(3, 1)
-    ax[0].plot(t, trans_err[:, 0])
-    ax[1].plot(t, trans_err[:, 1])
-    ax[2].plot(t, trans_err[:, 2])
+    fig, ax = plt.subplots(3, 2, figsize=(10, 20))
+    # fig.tight_layout()
+    plt.subplots_adjust(hspace=0.4)
+    axis = ["x", "y", "z"]
+    for i in range(3):
+        ax[i][0].plot(t, trans_err[:, i], label="Translation Error")
+        ax[i][0].fill_between(t, -3 * np.sqrt(var_ts[i]), +3 * np.sqrt(var_ts[i]), edgecolor='#CC4F1B',
+                           facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        ax[i][0].set_xlabel("Timestep")
+        ax[i][0].set_ylabel("Error [m]")
+        ax[i][0].set_title(f"Translation Error in {axis[i]} Axis")
+        ax[i][0].legend()
+
+        ax[i][1].plot(t, rot_err[:, i], label="Rotation Error")
+        ax[i][1].fill_between(t, -3 * np.sqrt(var_rs[i]), +3 * np.sqrt(var_rs[i]), edgecolor='#CC4F1B',
+                           facecolor='#FF9848', alpha=0.5, linestyle=':', label='Uncertainty Envelope')
+        ax[i][1].set_xlabel("Timestep")
+        ax[i][1].set_ylabel("Error [rad]")
+        ax[i][1].set_title(f"Rotation Error in {axis[i]} Axis")
+        ax[i][1].legend()
     plt.show()
+
+def q4():
+    valids = np.where(y_k_j == -1, 0, 1)
+    num_valids = valids[0, :, :].sum(-1)
+    colors = np.array(['g' if num>=3 else 'r' for num in num_valids])
+    t_sq = t.squeeze()
+
+    fig, ax = plt.subplots(figsize=(15,4))
+    fig.suptitle('Visible Landmarks at Each Timestep')
+    ax.scatter(np.arange(0, t_sq.shape[0]), num_valids, s=0.5, c=colors)
+    ax.plot(np.arange(0, t_sq.shape[0]), num_valids, linewidth=0.1, c='k')
+    ax.yaxis.get_major_locator().set_params(integer=True)
+    ax.set_ylabel("Number of Visible Landmarks")
+    ax.set_xlabel("Timestep Number")
+    plt.savefig("q4.png", bbox_inches='tight')
+
+    fig, ax = plt.subplots(figsize=(15, 4))
+    fig.suptitle('Visible Landmarks at Each Timestep for Timesteps 1215-1714')
+    ax.scatter(np.arange(1215, 1715), num_valids[1215:1715], s=0.5, c=colors[1215:1715])
+    ax.plot(np.arange(1215, 1715), num_valids[1215:1715], linewidth=0.1, c='k')
+    ax.yaxis.get_major_locator().set_params(integer=True)
+    ax.set_ylabel("Number of Visible Landmarks")
+    ax.set_xlabel("Timestep Number")
+    plt.savefig("q4_zoomed.png", bbox_inches='tight')
+
+def q5a():
+    k1, k2 = 1215, 1714
+    T_op = get_initial_guess(k1, k2)
+    T_opt, A = gn_batch_estimate(T_op, k1, k2, iters=10)
+    plot_errs(T_opt, A, k1, k2)
+
+def q5b():
+    k1, k2 = 1215, 1714
+    kappa = 50
+
+    T_op = get_initial_guess(k1, k1+kappa)
+    T_opt, A = gn_batch_estimate(T_op, k1, k1+kappa, iters=5)
+
+    Ts = np.zeros_like(T_opt)
+    As = np.zeros(((k2-k1+1)*6, (k2-k1+1)*6))
+    Ts[k1] = T_opt[k1]
+    var = np.linalg.inv(A).diagonal()
+    As[0:6, 0:6] = np.linalg.inv(np.diag(var[0:6]))
+
+    for k in range(k1+1, k2+1):
+        print(f"Current timestep: {k}")
+        T_op = get_initial_guess(k, k+kappa, T_gt=Ts[k-1])
+        T_opt, A = gn_batch_estimate(T_op, k, k+kappa, iters=5)
+        Ts[k] = T_opt[k]
+        var = np.linalg.inv(A).diagonal()
+        As[(k-k1)*6:(k-k1)*6+6, (k-k1)*6:(k-k1)*6+6] = np.linalg.inv(np.diag(var[0:6]))
+
+    plot_errs(Ts, As, k1, k2)
+
+def q5c():
+    k1, k2 = 1215, 1714
+    kappa = 10
+
+    T_op = get_initial_guess(k1, k1+kappa)
+    T_opt, A = gn_batch_estimate(T_op, k1, k1+kappa, iters=10)
+
+    Ts = np.zeros_like(T_opt)
+    As = np.zeros(((k2-k1+1)*6, (k2-k1+1)*6))
+    Ts[k1] = T_opt[k1]
+    var = np.linalg.inv(A).diagonal()
+    As[0:6, 0:6] = np.linalg.inv(np.diag(var[0:6]))
+
+    for k in range(k1+1, k2+1):
+        print(f"Current timestep: {k}")
+        T_op = get_initial_guess(k, k+kappa, T_gt=Ts[k-1])
+        T_opt, A = gn_batch_estimate(T_op, k, k+kappa, iters=10)
+        Ts[k] = T_opt[k]
+        var = np.linalg.inv(A).diagonal()
+        As[(k-k1)*6:(k-k1)*6+6, (k-k1)*6:(k-k1)*6+6] = np.linalg.inv(np.diag(var[0:6]))
+
+    plot_errs(Ts, As, k1, k2)
 
 if __name__ == "__main__":
     # q4()
-    T_op = gn_batch_estimate(1215, 1714)
-    # T_op = get_initial_guess(1215, 1714)
-    calculate_err(T_op, 1215, 1714)
-    # plot_figure(T_op)
-    # gn_batch_estimate(1215, 1400)
+    # q5a()
+    q5b()
+    # q5c()
