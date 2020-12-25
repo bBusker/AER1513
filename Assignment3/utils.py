@@ -91,61 +91,6 @@ def get_Ad(T):
     ad_T[:3, 3:] = get_cross_op(r.reshape((3, 1)))@C
     return ad_T
 
-def psi_2_rot(psi):
-    assert psi.shape == (3, 1)
-    psi_norm = norm(psi)
-    term1 = cos(psi_norm)*np.eye(3)
-    term2 = (1-cos(psi_norm))*(psi/psi_norm)@(psi/psi_norm).T
-    term3 = -sin(psi_norm)*get_cross_op(psi/psi_norm)
-    return term1+term2+term3
-
-def augment(x):
-    assert x.shape == (3, 1)
-    x = np.vstack((x, np.array([[1]])))
-    return x
-
-def show_sparsity_pattern(C):
-    plt.spy(C)
-    plt.show()
-
 def wrap_to_pi(ang):
     ang = (ang+np.pi)%(2*np.pi)-np.pi
     return ang
-
-if __name__ == "__main__":
-    a = np.array([[1],[2],[3]])
-    a_cross = get_cross_op(a)
-    # print(a_cross)
-    a = get_inv_cross_op(a_cross)
-    # print(a)
-    a = np.array([[4],[5],[6],[1],[2],[3]])
-    a_cross = get_cross_op(a)
-    # print(a_cross)
-    a = get_inv_cross_op(a_cross)
-    # print(a)
-    a = np.array([[1],[2],[3]])
-    C = psi_2_rot(a)
-    # print(C)
-    temp = np.eye(3)
-    temp[-1,-1] = 100
-    T = np.hstack((temp, np.array([[1],[2],[3]])))
-    T = np.vstack((T, np.array([0,0,0,1])))
-    ad_T = get_Ad(T)
-    # print(ad_T)
-    p = np.array([[4],[3],[2],[1]])
-    A = get_circ_op(p)
-    # print(A)
-
-    C = psi_2_rot(a)
-    T = np.hstack((C, np.array([[1],[2],[3]])))
-    T = np.vstack((T, np.array([0,0,0,1])))
-    T_inv = np.linalg.inv(T)
-    e = get_inv_cross_op(logm(np.eye(4)))
-    print(e)
-
-    # a = np.array([[1],[2],[3],[4],[5],[6]])
-    # z = np.array([[4],[3],[2],[1]])
-    # a_cross = get_cross_op(a)
-    # print(a_cross@z)
-    # print(get_circ_op(z)@a)
-

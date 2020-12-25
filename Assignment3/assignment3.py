@@ -34,12 +34,6 @@ b = dataset['b'].item()  # stereo camera baseline [m]
 T_c_v = Tmat(C_c_v, -C_c_v @ rho_v_c_v)
 
 # Create camera matrices
-D = np.array([
-    [1, 0, 0],
-    [0, 1, 0],
-    [0, 0, 1],
-    [0, 0, 0]
-])
 M = np.array([
     [fu, 0, cu, 0],
     [0, fv, cv, 0],
@@ -92,7 +86,6 @@ def get_ground_truth(k1=1215, k2=1714):
 
 def gn_batch_estimate(T_op, k1=1215, k2=1714, iters=7):
     K = k2 - k1
-    # T_op = get_initial_guess(k1, k2)
     # T_op = get_ground_truth(k1, k2)
 
 
@@ -158,15 +151,15 @@ def gn_batch_estimate(T_op, k1=1215, k2=1714, iters=7):
         H = np.vstack((H_top, H_bot))
 
         e_top = np.vstack(e_v_ks)
-        if len(e_y_ks) == 0:
+        if len(e_y_ks) == 0:  # In case we have no valid measurements
             e = e_top
         else:
             e_bot = np.vstack(e_y_ks)
             e = np.vstack((e_top, e_bot))
-        # print(f"e_top: {np.average(np.abs(e_top))}")
-        # print(f"e_bot: {np.average(np.abs(e_bot))}")
-        # print(f"e_bot_max: {np.max(np.abs(e_bot))}")
-        # print(f"e_bot_argmax: {np.argmax(np.abs(e_bot))}")
+        print(f"e_top: {np.average(np.abs(e_top))}")
+        print(f"e_bot: {np.average(np.abs(e_bot))}")
+        print(f"e_bot_max: {np.max(np.abs(e_bot))}")
+        print(f"e_bot_argmax: {np.argmax(np.abs(e_bot))}")
 
         W = block_diag(*(Qs + Rs))
         Winv = W.copy()
@@ -181,10 +174,8 @@ def gn_batch_estimate(T_op, k1=1215, k2=1714, iters=7):
         for k in range(K+1):
             T_op[k + k1] = expm(get_cross_op((iters-_)/iters * dx_opt[6*k:6*k+6])) @ T_op[k + k1]
 
-        # plot_errs(T_op, A, k1, k2)
-
-        # print(f"dx_opt: {np.average(np.abs(dx_opt))}")
-        # print("----------------------------------------")
+        print(f"dx_opt: {np.average(np.abs(dx_opt))}")
+        print("----------------------------------------")
 
     return T_op, A
 
@@ -295,7 +286,7 @@ def q5b():
     kappa = 50
 
     T_op = get_initial_guess(k1, k1+kappa)
-    T_opt, A = gn_batch_estimate(T_op, k1, k1+kappa, iters=5)
+    T_opt, A = gn_batch_estimate(T_op, k1, k1+kappa, iters=10)
 
     Ts = np.zeros_like(T_opt)
     As = np.zeros(((k2-k1+1)*6, (k2-k1+1)*6))
@@ -306,7 +297,7 @@ def q5b():
     for k in range(k1+1, k2+1):
         print(f"Current timestep: {k}")
         T_op = get_initial_guess(k, k+kappa, T_gt=Ts[k-1])
-        T_opt, A = gn_batch_estimate(T_op, k, k+kappa, iters=5)
+        T_opt, A = gn_batch_estimate(T_op, k, k+kappa, iters=10)
         Ts[k] = T_opt[k]
         var = np.linalg.inv(A).diagonal()
         As[(k-k1)*6:(k-k1)*6+6, (k-k1)*6:(k-k1)*6+6] = np.linalg.inv(np.diag(var[0:6]))
@@ -337,7 +328,7 @@ def q5c():
     plot_errs(Ts, As, k1, k2)
 
 if __name__ == "__main__":
-    # q4()
-    # q5a()
+    q4()
+    q5a()
     q5b()
-    # q5c()
+    q5c()
